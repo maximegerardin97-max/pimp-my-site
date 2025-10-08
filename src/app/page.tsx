@@ -23,6 +23,13 @@ type Recommendation = {
   title: string;
   explanation: string;
   votes: number;
+  category?: string;
+  impact?: string;
+  confidence?: string;
+  what_to_change?: string[];
+  acceptance_criteria?: string[];
+  analytics?: string[];
+  anchors?: string[];
 };
 
 type Step = "scan" | "details" | "results";
@@ -39,6 +46,7 @@ export default function Home() {
   const [scanInfo, setScanInfo] = useState<{ id: string; path?: string } | null>(
     null
   );
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
 
   const {
     register,
@@ -82,36 +90,140 @@ export default function Home() {
     setError(null);
     setLoading(true);
     try {
-      // Placeholder recommendations (agent to be implemented later)
-      setRecs([
-        {
-          id: "rec-1",
-          title: "Simplify UX for main flow",
-          explanation:
-            "Reduce the number of decision points on the landing and make primary CTA visible above the fold. Consider a guided stepper for the main action.",
-          votes: 12,
-        },
-        {
-          id: "rec-2",
-          title: "Unify UI",
-          explanation:
-            "Adopt a consistent 8px spacing scale, align on typography (one display, one text family), and unify button sizes and corner radii.",
-          votes: 8,
-        },
-        {
-          id: "rec-3",
-          title: "Improve visual hierarchy",
-          explanation:
-            "Use stronger contrast for headings, de-emphasize secondary actions, and introduce section dividers to guide scanning.",
-          votes: 5,
-        },
-      ]);
+      if (!supabase || !scanInfo?.path) {
+        throw new Error("Missing scan result or Supabase client");
+      }
+
+      const values = getValues();
+      const { data, error: fnError } = await supabase.functions.invoke("analyze", {
+        body: {
+          url: values.url,
+          screenshotPath: scanInfo.path,
+          context: {
+            support: "website",
+            industry: values.improveArea === "Other" ? "general" : "ecommerce",
+            screen_purpose: values.improveArea === "UX" ? "user experience" : "product page",
+            optimize_for: values.improveArea === "Looks" ? "visual appeal" : "conversion",
+            expectation: values.improveNotes || "general"
+          }
+        }
+      });
+
+      if (fnError) throw fnError;
+
+      // Transform the response to match our UI format
+      const transformedRecs = data.recommendations?.map((rec: any) => ({
+        id: rec.id,
+        title: rec.title,
+        explanation: rec.why_it_matters,
+        votes: rec.votes || 0,
+        category: rec.category,
+        impact: rec.impact,
+        confidence: rec.confidence,
+        what_to_change: rec.what_to_change,
+        acceptance_criteria: rec.acceptance_criteria,
+        analytics: rec.analytics,
+        anchors: rec.anchors
+      })) || [];
+
+      setRecs(transformedRecs);
+      setAnalysisId(data.analysis_id);
       setStep("results");
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Something went wrong";
+      const message = e instanceof Error ? e.message : "Analysis failed";
       setError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpvote = async (recId: string) => {
+    if (!supabase || !analysisId) return;
+    
+    try {
+      const { data, error } = await supabase.functions.invoke("analyze", {
+        body: {
+          action: "upvote",
+          rec_id: recId,
+          analysis_id: analysisId
+        }
+      });
+      
+      if (error) throw error;
+      
+      // Update local state with new recommendations
+      if (data.recommendations) {
+        const transformedRecs = data.recommendations.map((rec: any) => ({
+          id: rec.id,
+          title: rec.title,
+          explanation: rec.why_it_matters,
+          votes: rec.votes || 0,
+          category: rec.category,
+          impact: rec.impact,
+          confidence: rec.confidence,
+          what_to_change: rec.what_to_change,
+          acceptance_criteria: rec.acceptance_criteria,
+          analytics: rec.analytics,
+          anchors: rec.anchors
+        }));
+        setRecs(transformedRecs);
+      }
+    } catch (e) {
+      console.error("Upvote failed:", e);
+      // Fallback to local increment
+      setRecs((prev) =>
+        prev?.map((x) =>
+          x.id === recId ? { ...x, votes: x.votes + 1 } : x
+        ) ?? null
+      );
+    }
+  };
+
+  const handleDownvote = async (recId: string) => {
+    if (!supabase || !analysisId) return;
+    
+    try {
+      const { data, error } = await supabase.functions.invoke("analyze", {
+        body: {
+          action: "downvote",
+          rec_id: recId,
+          analysis_id: analysisId
+        }
+      });
+      
+      if (error) throw error;
+      
+      // Update local state with new recommendations
+      if (data.recommendations) {
+        const transformedRecs = data.recommendations.map((rec: any) => ({
+          id: rec.id,
+          title: rec.title,
+          explanation: rec.why_it_matters,
+          votes: rec.votes || 0,
+          category: rec.category,
+          impact: rec.impact,
+          confidence: rec.confidence,
+          what_to_change: rec.what_to_change,
+          acceptance_criteria: rec.acceptance_criteria,
+          analytics: rec.analytics,
+          anchors: rec.anchors
+        }));
+        setRecs(transformedRecs);
+      }
+    } catch (e) {
+      console.error("Downvote failed:", e);
+      // Fallback to local replacement
+      setRecs((prev) => {
+        if (!prev) return prev;
+        const replacement: Recommendation = {
+          id: `${recId}-alt-${Math.random().toString(36).slice(2, 6)}`,
+          title: "Clarify CTA hierarchy",
+          explanation:
+            "Make the primary action dominant and reduce secondary button emphasis. Use one vibrant gradient for the main CTA only.",
+          votes: 0,
+        };
+        return prev.map((x) => (x.id === recId ? replacement : x));
+      });
     }
   };
 
@@ -271,31 +383,13 @@ export default function Home() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <button
-                          onClick={() =>
-                            setRecs((prev) =>
-                              prev?.map((x) =>
-                                x.id === r.id ? { ...x, votes: x.votes + 1 } : x
-                              ) ?? null
-                            )
-                          }
+                          onClick={() => handleUpvote(r.id)}
                           className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
                         >
                           <ThumbsUp className="h-3.5 w-3.5" /> {r.votes}
                         </button>
                         <button
-                          onClick={() =>
-                            setRecs((prev) => {
-                              if (!prev) return prev;
-                              const replacement: Recommendation = {
-                                id: `${r.id}-alt-${Math.random().toString(36).slice(2, 6)}`,
-                                title: "Clarify CTA hierarchy",
-                                explanation:
-                                  "Make the primary action dominant and reduce secondary button emphasis. Use one vibrant gradient for the main CTA only.",
-                                votes: 0,
-                              };
-                              return prev.map((x) => (x.id === r.id ? replacement : x));
-                            })
-                          }
+                          onClick={() => handleDownvote(r.id)}
                           className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
                         >
                           <ThumbsDown className="h-3.5 w-3.5" />
