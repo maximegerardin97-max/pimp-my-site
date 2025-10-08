@@ -60,7 +60,12 @@ export default function Home() {
         body: { url },
       });
       if (fnError) throw fnError;
-      setScanInfo({ id: data?.id, path: data?.path });
+      const returnedPath: string | undefined =
+        (data?.screenshotPath as string | undefined) ||
+        (data?.screenshot_path as string | undefined) ||
+        (data?.assets?.primary as string | undefined) ||
+        (data?.path as string | undefined);
+      setScanInfo({ id: data?.id, path: returnedPath });
       setStep("details");
     } catch (e: unknown) {
       const message =
