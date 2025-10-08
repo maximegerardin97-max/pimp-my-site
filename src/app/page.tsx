@@ -12,9 +12,7 @@ const schema = z.object({
   description: z
     .string()
     .min(5, "Add a short description of what this does"),
-  improveArea: z.enum(["Looks", "UI", "UX", "Other"], {
-    required_error: "Pick an area to improve",
-  }),
+  improveArea: z.enum(["Looks", "UI", "UX", "Other"]),
   improveNotes: z.string().optional(),
 });
 
@@ -28,7 +26,10 @@ type Recommendation = {
 };
 
 export default function Home() {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
+  const supabase = useMemo(
+    () => (typeof window !== "undefined" ? getBrowserSupabaseClient() : null),
+    []
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
@@ -45,6 +46,7 @@ export default function Home() {
     setLoading(true);
     setRecs(null);
     try {
+      if (!supabase) throw new Error("Client not ready");
       const { error: fnError } = await supabase.functions.invoke("scan", {
         body: { url: values.url },
       });
@@ -74,8 +76,9 @@ export default function Home() {
           votes: 5,
         },
       ]);
-    } catch (e: any) {
-      setError(e?.message ?? "Something went wrong");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Something went wrong";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -154,7 +157,7 @@ export default function Home() {
                     {errors.description.message}
                   </p>
                 )}
-              </div>
+        </div>
               <div>
                 <label className="text-sm text-white/70">
                   What do you want to improve?
