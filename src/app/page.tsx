@@ -25,6 +25,8 @@ type Recommendation = {
   votes: number;
 };
 
+type Step = "scan" | "details" | "results";
+
 export default function Home() {
   const supabase = useMemo(
     () => (typeof window !== "undefined" ? getBrowserSupabaseClient() : null),
@@ -33,25 +35,48 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
+  const [step, setStep] = useState<Step>("scan");
+  const [scanInfo, setScanInfo] = useState<{ id: string; path?: string } | null>(
+    null
+  );
 
   const {
     register,
     handleSubmit,
     formState: { errors },
     watch,
+    getValues,
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
 
-  const onSubmit = async (values: FormValues) => {
+  const handleScan = async () => {
     setError(null);
     setLoading(true);
     setRecs(null);
     try {
       if (!supabase) throw new Error("Client not ready");
-      const { error: fnError } = await supabase.functions.invoke("scan", {
-        body: { url: values.url },
+      const url = getValues("url");
+      if (!url) throw new Error("Enter a URL to scan");
+      const { data, error: fnError } = await supabase.functions.invoke("scan", {
+        body: { url },
       });
       if (fnError) throw fnError;
+      setScanInfo({ id: data?.id, path: data?.path });
+      setStep("details");
+    } catch (e: unknown) {
+      const message =
+        e instanceof Error
+          ? e.message
+          : "Scan failed. If this is on GitHub Pages, ensure the edge function has CORS and JWT disabled.";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  const handleImprove = async () => {
+    setError(null);
+    setLoading(true);
+    try {
       // Placeholder recommendations (agent to be implemented later)
       setRecs([
         {
@@ -76,6 +101,7 @@ export default function Home() {
           votes: 5,
         },
       ]);
+      setStep("results");
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Something went wrong";
       setError(message);
@@ -115,14 +141,11 @@ export default function Home() {
             Make your website instantly more lovable
           </h1>
           <p className="mt-5 text-white/70 max-w-xl">
-            Paste your URL. We scan your site, analyze the design, and generate
-            actionable improvements you can ship today.
+            Paste your URL. We scan your site, then you add context, and we suggest improvements.
           </p>
 
-          <form
-            onSubmit={handleSubmit(onSubmit)}
-            className="mt-8 p-4 md:p-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur"
-          >
+          {/* Step 1: URL scan */}
+          <div className="mt-8 p-4 md:p-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur">
             <label className="text-sm text-white/70">Website URL</label>
             <div className="mt-2 flex gap-3">
               <input
@@ -131,80 +154,103 @@ export default function Home() {
                 className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:ring-2 ring-purple-500/50"
               />
               <button
-                type="submit"
+                type="button"
+                onClick={handleScan}
                 disabled={loading}
                 className="shrink-0 inline-flex items-center gap-2 rounded-xl px-4 py-3 font-medium bg-gradient-to-r from-[#A855F7] via-[#FF6B6B] to-[#F59E0B] text-black hover:opacity-90 transition"
               >
-                {loading ? "Scanning..." : "Scan"}
+                {loading && step === "scan" ? "Scanning..." : "Scan"}
                 <ArrowRight className="h-4 w-4" />
               </button>
             </div>
             {errors.url && (
               <p className="mt-2 text-sm text-red-400">{errors.url.message}</p>
             )}
+            {scanInfo?.path && (
+              <p className="mt-2 text-xs text-white/60">Stored screenshot: {scanInfo.path}</p>
+            )}
+          </div>
 
-            <div className="mt-6 grid gap-6 md:grid-cols-2">
-              <div>
-                <label className="text-sm text-white/70">What does this do?</label>
-                <textarea
-                  {...register("description")}
-                  rows={4}
-                  placeholder="Describe your product or page"
-                  className="mt-2 w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:ring-2 ring-purple-500/50 resize-none"
-                />
-                {errors.description && (
-                  <p className="mt-2 text-sm text-red-400">
-                    {errors.description.message}
-                  </p>
-                )}
-        </div>
-              <div>
-                <label className="text-sm text-white/70">
-                  What do you want to improve?
-                </label>
-                <div className="mt-2 grid grid-cols-4 gap-2">
-                  {["Looks", "UI", "UX", "Other"].map((k) => (
-                    <label
-                      key={k}
-                      className="flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm cursor-pointer hover:bg-white/10"
-                    >
-                      <input
-                        type="radio"
-                        value={k}
-                        {...register("improveArea")}
-                        className="accent-purple-500"
-                      />
-                      {k}
-                    </label>
-                  ))}
+          {/* Step 2: Context, only after successful scan */}
+          {step !== "scan" && (
+            <form className="mt-6 p-4 md:p-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur">
+              <div className="grid gap-6 md:grid-cols-2">
+                <div>
+                  <label className="text-sm text-white/70">What does this do?</label>
+                  <textarea
+                    {...register("description")}
+                    rows={4}
+                    placeholder="Describe your product or page"
+                    className="mt-2 w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:ring-2 ring-purple-500/50 resize-none"
+                  />
+                  {errors.description && (
+                    <p className="mt-2 text-sm text-red-400">
+                      {errors.description.message}
+                    </p>
+                  )}
                 </div>
-                {errors.improveArea && (
-                  <p className="mt-2 text-sm text-red-400">
-                    {errors.improveArea.message}
-                  </p>
-                )}
-                <textarea
-                  {...register("improveNotes")}
-                  rows={3}
-                  placeholder="Add details about what to improve"
-                  className="mt-3 w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:ring-2 ring-purple-500/50 resize-none"
-                />
+                <div>
+                  <label className="text-sm text-white/70">
+                    What do you want to improve?
+                  </label>
+                  <div className="mt-2 grid grid-cols-4 gap-2">
+                    {["Looks", "UI", "UX", "Other"].map((k) => (
+                      <label
+                        key={k}
+                        className="flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm cursor-pointer hover:bg-white/10"
+                      >
+                        <input
+                          type="radio"
+                          value={k}
+                          {...register("improveArea")}
+                          className="accent-purple-500"
+                        />
+                        {k}
+                      </label>
+                    ))}
+                  </div>
+                  {errors.improveArea && (
+                    <p className="mt-2 text-sm text-red-400">
+                      {errors.improveArea.message}
+                    </p>
+                  )}
+                  <textarea
+                    {...register("improveNotes")}
+                    rows={3}
+                    placeholder="Add details about what to improve"
+                    className="mt-3 w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:ring-2 ring-purple-500/50 resize-none"
+                  />
+                </div>
               </div>
-            </div>
-            {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
-          </form>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleImprove}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium bg-gradient-to-r from-[#A855F7] via-[#FF6B6B] to-[#F59E0B] text-black"
+                >
+                  {loading && step === "details" ? "Analyzing..." : "Improve my design"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
         </section>
 
         <section className="relative">
           <div className="absolute -inset-6 rounded-3xl bg-[radial-gradient(60%_60%_at_30%_10%,rgba(168,85,247,0.25),transparent_70%),radial-gradient(60%_60%_at_90%_20%,rgba(255,107,107,0.25),transparent_70%),radial-gradient(60%_60%_at_70%_90%,rgba(245,158,11,0.25),transparent_70%)] blur-2xl" />
           <div className="relative p-5 md:p-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur">
             <h3 className="text-sm font-medium text-white/80">Recommendations</h3>
-            {!recs && (
+            {step !== "results" && (
               <p className="mt-3 text-white/60 text-sm">
-                Scan a site to generate recommendations.
+                {step === "scan"
+                  ? "Scan a site to get started."
+                  : "Add context then click Improve my design."}
               </p>
             )}
-            {recs && (
+            {recs && step === "results" && (
               <ul className="mt-4 space-y-4">
                 {recs.map((r) => (
                   <li
@@ -235,7 +281,6 @@ export default function Home() {
                           onClick={() =>
                             setRecs((prev) => {
                               if (!prev) return prev;
-                              // Replace with a new placeholder when downvoted
                               const replacement: Recommendation = {
                                 id: `${r.id}-alt-${Math.random().toString(36).slice(2, 6)}`,
                                 title: "Clarify CTA hierarchy",
@@ -257,15 +302,17 @@ export default function Home() {
               </ul>
             )}
 
-            <div className="mt-6 flex justify-end">
-              <button
-                onClick={exportPrompt}
-                disabled={!recs}
-                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium bg-gradient-to-r from-[#A855F7] via-[#FF6B6B] to-[#F59E0B] text-black disabled:opacity-40"
-              >
-                <Download className="h-4 w-4" /> Export prompt to Lovable
-              </button>
-            </div>
+            {step === "results" && (
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={exportPrompt}
+                  disabled={!recs}
+                  className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium bg-gradient-to-r from-[#A855F7] via-[#FF6B6B] to-[#F59E0B] text-black disabled:opacity-40"
+                >
+                  <Download className="h-4 w-4" /> Export prompt to Lovable
+                </button>
+              </div>
+            )}
           </div>
         </section>
       </main>
