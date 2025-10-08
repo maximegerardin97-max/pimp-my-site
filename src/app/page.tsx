@@ -1,102 +1,274 @@
-import Image from "next/image";
+"use client";
+
+import { useMemo, useState } from "react";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { ArrowRight, ThumbsUp, ThumbsDown, Download } from "lucide-react";
+
+const schema = z.object({
+  url: z.string().url("Enter a valid URL"),
+  description: z
+    .string()
+    .min(5, "Add a short description of what this does"),
+  improveArea: z.enum(["Looks", "UI", "UX", "Other"], {
+    required_error: "Pick an area to improve",
+  }),
+  improveNotes: z.string().optional(),
+});
+
+type FormValues = z.infer<typeof schema>;
+
+type Recommendation = {
+  id: string;
+  title: string;
+  explanation: string;
+  votes: number;
+};
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [recs, setRecs] = useState<Recommendation[] | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    watch,
+  } = useForm<FormValues>({ resolver: zodResolver(schema) });
+
+  const onSubmit = async (values: FormValues) => {
+    setError(null);
+    setLoading(true);
+    setRecs(null);
+    try {
+      const { error: fnError } = await supabase.functions.invoke("scan", {
+        body: { url: values.url },
+      });
+      if (fnError) throw fnError;
+
+      // Placeholder recommendations (agent to be implemented later)
+      setRecs([
+        {
+          id: "rec-1",
+          title: "Simplify UX for main flow",
+          explanation:
+            "Reduce the number of decision points on the landing and make primary CTA visible above the fold. Consider a guided stepper for the main action.",
+          votes: 12,
+        },
+        {
+          id: "rec-2",
+          title: "Unify UI",
+          explanation:
+            "Adopt a consistent 8px spacing scale, align on typography (one display, one text family), and unify button sizes and corner radii.",
+          votes: 8,
+        },
+        {
+          id: "rec-3",
+          title: "Improve visual hierarchy",
+          explanation:
+            "Use stronger contrast for headings, de-emphasize secondary actions, and introduce section dividers to guide scanning.",
+          votes: 5,
+        },
+      ]);
+    } catch (e: any) {
+      setError(e?.message ?? "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportPrompt = () => {
+    const values = watch();
+    const text = `Analyze the provided website screenshots and context, and propose top improvements.\nURL: ${values.url}\nDescription: ${values.description}\nFocus Area: ${values.improveArea}\nNotes: ${values.improveNotes ?? ""}`;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "lovable_prompt.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const gradientText =
+    "bg-clip-text text-transparent bg-[radial-gradient(100%_100%_at_0%_0%,#A855F7_0%,transparent_50%),radial-gradient(100%_100%_at_100%_0%,#FF6B6B_0%,transparent_50%),radial-gradient(100%_100%_at_100%_100%,#F59E0B_0%,transparent_50%)]";
+
+  return (
+    <div className="px-6 md:px-10 lg:px-16 py-12 md:py-16">
+      <header className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-[#A855F7] via-[#FF6B6B] to-[#F59E0B]" />
+          <span className="text-lg font-semibold tracking-tight">Pimp My Site</span>
         </div>
+        <div className="text-xs text-white/60">Powered by Supabase</div>
+      </header>
+
+      <main className="mt-16 md:mt-24 grid gap-12 md:gap-16 lg:grid-cols-2 items-start">
+        <section>
+          <h1 className={`text-4xl md:text-6xl font-bold leading-[1.05] ${gradientText}`}>
+            Make your website instantly more lovable
+          </h1>
+          <p className="mt-5 text-white/70 max-w-xl">
+            Paste your URL. We scan your site, analyze the design, and generate
+            actionable improvements you can ship today.
+          </p>
+
+          <form
+            onSubmit={handleSubmit(onSubmit)}
+            className="mt-8 p-4 md:p-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur"
+          >
+            <label className="text-sm text-white/70">Website URL</label>
+            <div className="mt-2 flex gap-3">
+              <input
+                {...register("url")}
+                placeholder="https://your-site.com"
+                className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:ring-2 ring-purple-500/50"
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                className="shrink-0 inline-flex items-center gap-2 rounded-xl px-4 py-3 font-medium bg-gradient-to-r from-[#A855F7] via-[#FF6B6B] to-[#F59E0B] text-black hover:opacity-90 transition"
+              >
+                {loading ? "Scanning..." : "Scan"}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+            {errors.url && (
+              <p className="mt-2 text-sm text-red-400">{errors.url.message}</p>
+            )}
+
+            <div className="mt-6 grid gap-6 md:grid-cols-2">
+              <div>
+                <label className="text-sm text-white/70">What does this do?</label>
+                <textarea
+                  {...register("description")}
+                  rows={4}
+                  placeholder="Describe your product or page"
+                  className="mt-2 w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:ring-2 ring-purple-500/50 resize-none"
+                />
+                {errors.description && (
+                  <p className="mt-2 text-sm text-red-400">
+                    {errors.description.message}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="text-sm text-white/70">
+                  What do you want to improve?
+                </label>
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {["Looks", "UI", "UX", "Other"].map((k) => (
+                    <label
+                      key={k}
+                      className="flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm cursor-pointer hover:bg-white/10"
+                    >
+                      <input
+                        type="radio"
+                        value={k}
+                        {...register("improveArea")}
+                        className="accent-purple-500"
+                      />
+                      {k}
+                    </label>
+                  ))}
+                </div>
+                {errors.improveArea && (
+                  <p className="mt-2 text-sm text-red-400">
+                    {errors.improveArea.message}
+                  </p>
+                )}
+                <textarea
+                  {...register("improveNotes")}
+                  rows={3}
+                  placeholder="Add details about what to improve"
+                  className="mt-3 w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:ring-2 ring-purple-500/50 resize-none"
+                />
+              </div>
+            </div>
+            {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+          </form>
+        </section>
+
+        <section className="relative">
+          <div className="absolute -inset-6 rounded-3xl bg-[radial-gradient(60%_60%_at_30%_10%,rgba(168,85,247,0.25),transparent_70%),radial-gradient(60%_60%_at_90%_20%,rgba(255,107,107,0.25),transparent_70%),radial-gradient(60%_60%_at_70%_90%,rgba(245,158,11,0.25),transparent_70%)] blur-2xl" />
+          <div className="relative p-5 md:p-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur">
+            <h3 className="text-sm font-medium text-white/80">Recommendations</h3>
+            {!recs && (
+              <p className="mt-3 text-white/60 text-sm">
+                Scan a site to generate recommendations.
+              </p>
+            )}
+            {recs && (
+              <ul className="mt-4 space-y-4">
+                {recs.map((r) => (
+                  <li
+                    key={r.id}
+                    className="rounded-xl border border-white/10 bg-white/5 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="font-medium">{r.title}</h4>
+                        <p className="mt-1 text-sm text-white/70">
+                          {r.explanation}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() =>
+                            setRecs((prev) =>
+                              prev?.map((x) =>
+                                x.id === r.id ? { ...x, votes: x.votes + 1 } : x
+                              ) ?? null
+                            )
+                          }
+                          className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
+                        >
+                          <ThumbsUp className="h-3.5 w-3.5" /> {r.votes}
+                        </button>
+                        <button
+                          onClick={() =>
+                            setRecs((prev) => {
+                              if (!prev) return prev;
+                              // Replace with a new placeholder when downvoted
+                              const replacement: Recommendation = {
+                                id: `${r.id}-alt-${Math.random().toString(36).slice(2, 6)}`,
+                                title: "Clarify CTA hierarchy",
+                                explanation:
+                                  "Make the primary action dominant and reduce secondary button emphasis. Use one vibrant gradient for the main CTA only.",
+                                votes: 0,
+                              };
+                              return prev.map((x) => (x.id === r.id ? replacement : x));
+                            })
+                          }
+                          className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
+                        >
+                          <ThumbsDown className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={exportPrompt}
+                disabled={!recs}
+                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium bg-gradient-to-r from-[#A855F7] via-[#FF6B6B] to-[#F59E0B] text-black disabled:opacity-40"
+              >
+                <Download className="h-4 w-4" /> Export prompt to Lovable
+              </button>
+            </div>
+          </div>
+        </section>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+
+      <footer className="mt-16 text-center text-xs text-white/50">
+        Built with ❤️ using Supabase
       </footer>
     </div>
   );
