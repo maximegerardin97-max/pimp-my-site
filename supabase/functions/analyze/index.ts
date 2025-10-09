@@ -314,7 +314,11 @@ Context: ${JSON.stringify(context ?? {}, null, 2)}
 
     const parsed = parseModelJson(text);
     if (!parsed || !Array.isArray(parsed.recommendations)) {
-      return ok({ error: "Model did not return valid recommendations JSON." }, 500);
+      console.error("Raw Gemini response:", text);
+      return ok({ 
+        error: "Model did not return valid recommendations JSON.", 
+        debug: text.slice(0, 1000) 
+      }, 500);
     }
 
     const analysisId = await insertAnalysis(parsed, url, paths);
