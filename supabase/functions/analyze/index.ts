@@ -3,7 +3,6 @@
 // Env required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_API_KEY
 // Optional: PROMPT_PREFIX
 
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.0?target=deno";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("SB_URL") || "";
@@ -233,7 +232,7 @@ async function getAnalysisPayload(analysisId: string) {
   };
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_204 });
   if (req.method !== "POST") return ok({ error: "Method not allowed" }, 405);
 
