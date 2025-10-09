@@ -33,25 +33,46 @@ function extractJsonObject(text: string) {
 }
 
 function parseModelJson(text: string) {
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  const cleaned = m[0]
-    .replace(/,\s*([}\]])/g, "$1")
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, '"');
-  try {
-    return JSON.parse(cleaned);
-  } catch {
+  console.log("Raw Gemini text:", text.slice(0, 500));
+  
+  // Try multiple extraction methods
+  const methods = [
+    () => {
+      const m = text.match(/\{[\s\S]*\}/);
+      return m ? m[0] : null;
+    },
+    () => extractJsonObject(text),
+    () => {
+      const lines = text.split('\n');
+      const jsonStart = lines.findIndex(line => line.trim().startsWith('{'));
+      if (jsonStart === -1) return null;
+      return lines.slice(jsonStart).join('\n');
+    }
+  ];
+  
+  for (const method of methods) {
     try {
-      const fallback = extractJsonObject(text)
+      const jsonStr = method();
+      if (!jsonStr) continue;
+      
+      const cleaned = jsonStr
         .replace(/,\s*([}\]])/g, "$1")
-        .replace(/[“”]/g, '"')
-        .replace(/[‘’]/g, '"');
-      return JSON.parse(fallback);
-    } catch {
-      return null;
+        .replace(/[""]/g, '"')
+        .replace(/['']/g, '"')
+        .replace(/\n\s*/g, ' ')
+        .trim();
+        
+      const parsed = JSON.parse(cleaned);
+      if (parsed && Array.isArray(parsed.recommendations)) {
+        console.log("Successfully parsed JSON");
+        return parsed;
+      }
+    } catch (e) {
+      console.log("Parse attempt failed:", e.message);
     }
   }
+  
+  return null;
 }
 
 async function fetchStorageInline(path: string) {
