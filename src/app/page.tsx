@@ -204,7 +204,7 @@ export default function Home() {
       .invoke("analyze", {
         body: { action: "downvote", rec_id: recId, analysis_id: analysisId },
       })
-      .catch((e) => console.error("Downvote log failed", e));
+      .catch((e: unknown) => console.error("Downvote log failed", e));
   };
 
   const exportPrompt = () => {
