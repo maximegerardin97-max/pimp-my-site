@@ -42,6 +42,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
+  const [moreRecs, setMoreRecs] = useState<Recommendation[]>([]);
   const [step, setStep] = useState<Step>("scan");
   const [scanInfo, setScanInfo] = useState<{ id: string; path?: string } | null>(
     null
@@ -112,7 +113,8 @@ export default function Home() {
       if (fnError) throw fnError;
 
       // Transform the response to match our UI format
-      const transformedRecs = data.recommendations?.map((rec: any) => ({
+      const allIncoming: any[] = (data.recommendations_all || data.recommendations) || [];
+      const transformedRecs: Recommendation[] = allIncoming.map((rec: any) => ({
         id: rec.id,
         title: rec.title,
         explanation: rec.why_it_matters,
@@ -124,9 +126,12 @@ export default function Home() {
         acceptance_criteria: rec.acceptance_criteria,
         analytics: rec.analytics,
         anchors: rec.anchors
-      })) || [];
+      })) as Recommendation[];
 
-      setRecs(transformedRecs);
+      const firstThree = transformedRecs.slice(0, 3);
+      const rest = transformedRecs.slice(3);
+      setRecs(firstThree);
+      setMoreRecs(rest);
       setAnalysisId(data.analysis_id);
       setStep("results");
     } catch (e: unknown) {
@@ -181,50 +186,25 @@ export default function Home() {
 
   const handleDownvote = async (recId: string) => {
     if (!supabase || !analysisId) return;
-    
-    try {
-      const { data, error } = await supabase.functions.invoke("analyze", {
-        body: {
-          action: "downvote",
-          rec_id: recId,
-          analysis_id: analysisId
-        }
-      });
-      
-      if (error) throw error;
-      
-      // Update local state with new recommendations
-      if (data.recommendations) {
-        const transformedRecs = data.recommendations.map((rec: any) => ({
-          id: rec.id,
-          title: rec.title,
-          explanation: rec.why_it_matters,
-          votes: rec.votes || 0,
-          category: rec.category,
-          impact: rec.impact,
-          confidence: rec.confidence,
-          what_to_change: rec.what_to_change,
-          acceptance_criteria: rec.acceptance_criteria,
-          analytics: rec.analytics,
-          anchors: rec.anchors
-        }));
-        setRecs(transformedRecs);
+
+    // Optimistic UI: remove the rec immediately and pull next from queue
+    setRecs((prev) => {
+      if (!prev) return prev;
+      const remaining = prev.filter((x) => x.id !== recId);
+      if (remaining.length < 3 && moreRecs.length > 0) {
+        const [next, ...tail] = moreRecs;
+        setMoreRecs(tail);
+        return [...remaining, next];
       }
-    } catch (e) {
-      console.error("Downvote failed:", e);
-      // Fallback to local replacement
-      setRecs((prev) => {
-        if (!prev) return prev;
-        const replacement: Recommendation = {
-          id: `${recId}-alt-${Math.random().toString(36).slice(2, 6)}`,
-          title: "Clarify CTA hierarchy",
-          explanation:
-            "Make the primary action dominant and reduce secondary button emphasis. Use one vibrant gradient for the main CTA only.",
-          votes: 0,
-        };
-        return prev.map((x) => (x.id === recId ? replacement : x));
-      });
-    }
+      return remaining;
+    });
+
+    // Fire-and-forget backend log (don't block UI)
+    supabase.functions
+      .invoke("analyze", {
+        body: { action: "downvote", rec_id: recId, analysis_id: analysisId },
+      })
+      .catch((e) => console.error("Downvote log failed", e));
   };
 
   const exportPrompt = () => {
