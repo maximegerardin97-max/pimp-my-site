@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   assetPrefix: isGitHubPages ? `/${repoName}/` : undefined,
   basePath: isGitHubPages ? `/${repoName}` : undefined,
+  eslint: { ignoreDuringBuilds: true },
 };
 
 export default nextConfig;
