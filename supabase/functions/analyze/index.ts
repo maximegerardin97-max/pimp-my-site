@@ -37,6 +37,12 @@ function parseModelJson(text: string) {
   
   // Try multiple extraction methods
   const methods = [
+    // Handle markdown code fences
+    () => {
+      const match = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+      return match ? match[1] : null;
+    },
+    // Handle regular JSON object
     () => {
       const m = text.match(/\{[\s\S]*\}/);
       return m ? m[0] : null;
