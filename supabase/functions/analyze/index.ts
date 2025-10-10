@@ -86,8 +86,14 @@ async function fetchStorageInline(path: string) {
   }
 }
 
-async function callClaude(prompt: string) {
+async function callClaude(prompt: string, mediaParts: any[] = []) {
   if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
+  
+  const content = [{ type: "text", text: prompt }];
+  if (mediaParts.length > 0) {
+    content.push(...mediaParts);
+  }
+  
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -101,7 +107,7 @@ async function callClaude(prompt: string) {
       temperature: 0,
       system: "You are a strict JSON generator. Output ONLY valid JSON, no prose or code fences.",
       messages: [
-        { role: "user", content: [{ type: "text", text: prompt }] }
+        { role: "user", content: content }
       ]
     })
   });
@@ -118,6 +124,8 @@ function buildPrompt(ctx: any) {
 
 Context:
 ${ctxStr}
+
+Analyze the provided website screenshot(s) and context to give specific, actionable design recommendations.
 
 You are a design analyst. Return ONLY JSON with exactly:
 {
@@ -302,7 +310,7 @@ Deno.serve(async (req) => {
     }
 
     const prompt = buildPrompt(context || {});
-    const text = await callClaude(prompt);
+    const text = await callClaude(prompt, mediaParts);
     const parsed = parseModelJson(text);
     if (!parsed || !Array.isArray(parsed.recommendations_all) || parsed.recommendations_all.length !== 7) {
       return ok({ error: "Model did not return valid recommendations_all[7]." }, 500);
