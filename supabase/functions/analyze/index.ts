@@ -15,7 +15,6 @@ if (__g.clearInterval) { try { delete __g.clearInterval; } catch { __g.clearInte
 if (__g.clearTimeout) { try { delete __g.clearTimeout; } catch { __g.clearTimeout = undefined; } }
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4?target=deno&no-check&no-dts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("SB_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SB_SERVICE_ROLE_KEY") || "";
@@ -33,22 +32,30 @@ const CORS_JSON = { ...CORS_204, "Content-Type": "application/json" };
 const ok = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: CORS_JSON });
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-    detectSessionInUrl: false,
-  },
-  global: { 
-    headers: { 
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'apikey': SUPABASE_SERVICE_ROLE_KEY
-    } 
-  },
-  db: {
-    schema: 'public'
-  }
-});
+// Direct Supabase API calls to avoid Node.js polyfills
+const supabaseHeaders = {
+  'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+  'apikey': SUPABASE_SERVICE_ROLE_KEY,
+  'Content-Type': 'application/json'
+};
+
+async function supabaseRequest(endpoint: string, options: RequestInit = {}) {
+  const url = `${SUPABASE_URL}/rest/v1/${endpoint}`;
+  const response = await fetch(url, {
+    ...options,
+    headers: { ...supabaseHeaders, ...options.headers }
+  });
+  return response.json();
+}
+
+async function supabaseStorageRequest(endpoint: string, options: RequestInit = {}) {
+  const url = `${SUPABASE_URL}/storage/v1/object/${endpoint}`;
+  const response = await fetch(url, {
+    ...options,
+    headers: { ...supabaseHeaders, ...options.headers }
+  });
+  return response;
+}
 
 function extractJsonObject(text: string) {
   const s = text.indexOf("{"), e = text.lastIndexOf("}");
@@ -96,10 +103,10 @@ function parseModelJson(text: string) {
 
 async function fetchStorageInline(path: string) {
   try {
-    const { data } = supabase.storage.from(SCREENSHOT_BUCKET).getPublicUrl(path);
-    if (!data?.publicUrl) return null;
+    // Get public URL for storage object
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${SCREENSHOT_BUCKET}/${path}`;
     // Prefer URL source to avoid base64 dimension/size limits; Anthropic will fetch and handle resizing
-    return { type: "image", source: { type: "url", url: data.publicUrl } };
+    return { type: "image", source: { type: "url", url: publicUrl } };
   } catch (e) {
     console.log("Failed to process screenshot:", e);
     return null;
@@ -185,27 +192,31 @@ Hard constraints:
 }
 
 async function insertAnalysis(parsed: any, url?: string, screenshotPaths?: string[]) {
-  const { data: analysis, error: aErr } = await supabase
-    .from("design_analyses")
-    .insert({
-      input_url: url ?? null,
-      screenshot_paths: screenshotPaths ?? [],
-      summary: parsed?.summary ?? null,
-      flow_app: null,
-      flow_name: null,
-      command: null,
-      punchline: null,
-      raw_model: parsed ?? null,
-      status: "completed",
-    })
-    .select("*")
-    .single();
-  if (aErr) throw aErr;
+  const analysisData = {
+    input_url: url ?? null,
+    screenshot_paths: screenshotPaths ?? [],
+    summary: parsed?.summary ?? null,
+    flow_app: null,
+    flow_name: null,
+    command: null,
+    punchline: null,
+    raw_model: parsed ?? null,
+    status: "completed",
+  };
+
+  const analysis = await supabaseRequest("design_analyses", {
+    method: "POST",
+    body: JSON.stringify(analysisData),
+    headers: { 'Prefer': 'return=representation' }
+  });
+
+  if (!analysis || !analysis[0]) throw new Error("Failed to insert analysis");
+  const analysisId = analysis[0].id;
 
   const recsAll = Array.isArray(parsed?.recommendations_all) ? parsed.recommendations_all : [];
   if (recsAll.length) {
     const rows = recsAll.map((r: any) => ({
-      analysis_id: analysis.id,
+      analysis_id: analysisId,
       rec_key: r.id || `REC-${crypto.randomUUID().slice(0, 8)}`,
       category: r.category ?? null,
       title: r.title ?? null,
@@ -219,18 +230,17 @@ async function insertAnalysis(parsed: any, url?: string, screenshotPaths?: strin
       votes: 0,
       is_active: true,
     }));
-    const { error: rErr } = await supabase.from("design_recommendations").insert(rows);
-    if (rErr) throw rErr;
+    
+    await supabaseRequest("design_recommendations", {
+      method: "POST",
+      body: JSON.stringify(rows)
+    });
   }
-  return analysis.id as string;
+  return analysisId;
 }
 
 async function getAllActive(analysisId: string) {
-  const { data } = await supabase
-    .from("design_recommendations")
-    .select("*")
-    .eq("analysis_id", analysisId)
-    .eq("is_active", true);
+  const data = await supabaseRequest(`design_recommendations?analysis_id=eq.${analysisId}&is_active=eq.true`);
   return data || [];
 }
 
@@ -241,7 +251,7 @@ function priorityScore(impact?: string, confidence?: string) {
 }
 
 async function getPayload(analysisId: string) {
-  const { data: a } = await supabase.from("design_analyses").select("*").eq("id", analysisId).single();
+  const a = await supabaseRequest(`design_analyses?id=eq.${analysisId}`);
   const all = await getAllActive(analysisId);
 
   const ranked = [...all].sort((x, y) => {
@@ -253,7 +263,7 @@ async function getPayload(analysisId: string) {
 
   return {
     analysis_id: analysisId,
-    summary: a?.summary ?? "",
+    summary: a?.[0]?.summary ?? "",
     recommendations: top3.map((r) => ({
       id: r.rec_key,
       category: r.category,
@@ -302,21 +312,27 @@ Deno.serve(async (req) => {
     // Interactions
     if (action && analysis_id) {
       if (action === "upvote" && rec_id) {
-        const { data: row } = await supabase
-          .from("design_recommendations")
-          .select("votes").eq("analysis_id", analysis_id).eq("rec_key", rec_id).single();
-        await supabase
-          .from("design_recommendations")
-          .update({ votes: (row?.votes ?? 0) + 1 })
-          .eq("analysis_id", analysis_id).eq("rec_key", rec_id);
-        await supabase.from("design_interactions").insert({ analysis_id, rec_key: rec_id, action: "upvote", payload: null });
+        const row = await supabaseRequest(`design_recommendations?analysis_id=eq.${analysis_id}&rec_key=eq.${rec_id}`);
+        const currentVotes = row?.[0]?.votes ?? 0;
+        await supabaseRequest(`design_recommendations?analysis_id=eq.${analysis_id}&rec_key=eq.${rec_id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ votes: currentVotes + 1 })
+        });
+        await supabaseRequest("design_interactions", {
+          method: "POST",
+          body: JSON.stringify({ analysis_id, rec_key: rec_id, action: "upvote", payload: null })
+        });
         return ok(await getPayload(analysis_id), 200);
       }
       if (action === "downvote" && rec_id) {
-        await supabase.from("design_recommendations")
-          .update({ is_active: false })
-          .eq("analysis_id", analysis_id).eq("rec_key", rec_id);
-        await supabase.from("design_interactions").insert({ analysis_id, rec_key: rec_id, action: "downvote", payload: null });
+        await supabaseRequest(`design_recommendations?analysis_id=eq.${analysis_id}&rec_key=eq.${rec_id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ is_active: false })
+        });
+        await supabaseRequest("design_interactions", {
+          method: "POST",
+          body: JSON.stringify({ analysis_id, rec_key: rec_id, action: "downvote", payload: null })
+        });
         return ok(await getPayload(analysis_id), 200);
       }
       return ok(await getPayload(analysis_id), 200);
