@@ -1,13 +1,13 @@
 // CORS: strict (OPTIONS 204), wildcard allow-origin on all JSON
 // JWT verification: OFF
-// Env required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_API_KEY
+// Env required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY
 // Optional: PROMPT_PREFIX
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.0?target=deno";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("SB_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SB_SERVICE_ROLE_KEY") || "";
-const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") || "";
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
 const SCREENSHOT_BUCKET = "screenshots"; // hardcoded
 const PROMPT_PREFIX = Deno.env.get("PROMPT_PREFIX") || "";
 
@@ -33,16 +33,12 @@ function extractJsonObject(text: string) {
 }
 
 function parseModelJson(text: string) {
-  console.log("Raw Gemini text:", text.slice(0, 500));
-  
   // Try multiple extraction methods
   const methods = [
-    // Handle markdown code fences
     () => {
       const match = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
       return match ? match[1] : null;
     },
-    // Handle regular JSON object
     () => {
       const m = text.match(/\{[\s\S]*\}/);
       return m ? m[0] : null;
@@ -55,29 +51,22 @@ function parseModelJson(text: string) {
       return lines.slice(jsonStart).join('\n');
     }
   ];
-  
+
   for (const method of methods) {
     try {
       const jsonStr = method();
       if (!jsonStr) continue;
-      
       const cleaned = jsonStr
         .replace(/,\s*([}\]])/g, "$1")
-        .replace(/[""]/g, '"')
-        .replace(/['']/g, '"')
-        .replace(/\n\s*/g, ' ')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, '"')
         .trim();
-        
       const parsed = JSON.parse(cleaned);
-      if (parsed && Array.isArray(parsed.recommendations)) {
-        console.log("Successfully parsed JSON");
-        return parsed;
-      }
-    } catch (e) {
-      console.log("Parse attempt failed:", e.message);
+      if (parsed) return parsed;
+    } catch {
+      // continue
     }
   }
-  
   return null;
 }
 
@@ -97,44 +86,30 @@ async function fetchStorageInline(path: string) {
   }
 }
 
-async function callGemini(prompt: string, mediaParts: any[]) {
-  if (!GOOGLE_API_KEY) throw new Error("GOOGLE_API_KEY not set");
-
-  const contents = [{ role: "user", parts: [{ text: prompt }, ...mediaParts] }];
-
-  const endpoints = [
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent",
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
-    "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent",
-  ];
-
-  let last = "";
-  for (const base of endpoints) {
-    try {
-      const res = await fetch(`${base}?key=${GOOGLE_API_KEY}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents,
-          generationConfig: { temperature: 0.4, maxOutputTokens: 3000 },
-        }),
-      });
-      if (res.ok) {
-        const body = await res.json();
-        const text =
-          body?.candidates?.[0]?.content?.parts?.find((p: any) => typeof p?.text === "string")?.text || "";
-        if (text) return text;
-      } else {
-        last = `${base}: ${res.status} ${await res.text().catch(() => "")}`;
-        console.error("Gemini error:", last);
-      }
-    } catch (e) {
-      last = `${base}: ${String((e as Error).message || e)}`;
-      console.error("Gemini fetch error:", last);
-    }
-  }
-  throw new Error(`All Gemini endpoints failed. Last: ${last}`);
+async function callClaude(prompt: string) {
+  if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-3-5-haiku-20241022",
+      max_tokens: 4000,
+      temperature: 0,
+      system: "You are a strict JSON generator. Output ONLY valid JSON, no prose or code fences.",
+      messages: [
+        { role: "user", content: [{ type: "text", text: prompt }] }
+      ]
+    })
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Claude ${res.status}: ${JSON.stringify(body)}`);
+  const parts = Array.isArray(body?.content) ? body.content : [];
+  const text = parts.map((p: any) => p?.type === "text" ? p.text : "").join("\n").trim();
+  return text;
 }
 
 function buildPrompt(ctx: any) {
@@ -144,49 +119,18 @@ function buildPrompt(ctx: any) {
 Context:
 ${ctxStr}
 
-You are a design analyst. Return ONLY a JSON with exactly this structure:
-
+You are a design analyst. Return ONLY JSON with exactly:
 {
-  "summary": "Brief 1–2 sentence summary",
-  "recommendations": [
-    {
-      "id": "REC-1",
-      "category": "ui|ux|product",
-      "title": "Short actionable title",
-      "impact": "high|medium|low",
-      "confidence": "high|medium|low",
-      "why_it_matters": "Conversion/usability rationale",
-      "what_to_change": ["action 1", "action 2"],
-      "acceptance_criteria": ["criterion 1", "criterion 2"],
-      "analytics": ["metric 1", "metric 2"],
-      "anchors": []
-    },
-    {
-      "id": "REC-2",
-      "category": "ui|ux|product",
-      "title": "Short actionable title",
-      "impact": "high|medium|low",
-      "confidence": "high|medium|low",
-      "why_it_matters": "Conversion/usability rationale",
-      "what_to_change": ["action 1", "action 2"],
-      "acceptance_criteria": ["criterion 1", "criterion 2"],
-      "analytics": ["metric 1", "metric 2"],
-      "anchors": []
-    },
-    {
-      "id": "REC-3",
-      "category": "ui|ux|product",
-      "title": "Short actionable title",
-      "impact": "high|medium|low",
-      "confidence": "high|medium|low",
-      "why_it_matters": "Conversion/usability rationale",
-      "what_to_change": ["action 1", "action 2"],
-      "acceptance_criteria": ["criterion 1", "criterion 2"],
-      "analytics": ["metric 1", "metric 2"],
-      "anchors": []
-    }
+  "summary": "max 25 words",
+  "recommendations_all": [
+    { "id":"REC-1","category":"ui|ux|product","title":"max 8 words","impact":"high|medium|low","confidence":"high|medium|low","why_it_matters":"max 12 words","what_to_change":["max 6 words","max 6 words"],"acceptance_criteria":["max 6 words","max 6 words"],"analytics":["max 3 words"],"anchors":[] }
   ]
 }
+
+Hard constraints:
+- recommendations_all has EXACTLY 7 items.
+- Rank highest priority first. Priority = (impact high=3, medium=2, low=1) + (confidence high=0.3, medium=0.2, low=0.1). Sort DESC by score.
+- JSON only. No code fences. No extra keys.
 `;
 }
 
@@ -208,9 +152,9 @@ async function insertAnalysis(parsed: any, url?: string, screenshotPaths?: strin
     .single();
   if (aErr) throw aErr;
 
-  const recs = Array.isArray(parsed?.recommendations) ? parsed.recommendations : [];
-  if (recs.length) {
-    const rows = recs.map((r: any) => ({
+  const recsAll = Array.isArray(parsed?.recommendations_all) ? parsed.recommendations_all : [];
+  if (recsAll.length) {
+    const rows = recsAll.map((r: any) => ({
       analysis_id: analysis.id,
       rec_key: r.id || `REC-${crypto.randomUUID().slice(0, 8)}`,
       category: r.category ?? null,
@@ -231,19 +175,49 @@ async function insertAnalysis(parsed: any, url?: string, screenshotPaths?: strin
   return analysis.id as string;
 }
 
-async function getAnalysisPayload(analysisId: string) {
-  const { data: a } = await supabase.from("design_analyses").select("*").eq("id", analysisId).single();
-  const { data: recs } = await supabase
+async function getAllActive(analysisId: string) {
+  const { data } = await supabase
     .from("design_recommendations")
     .select("*")
     .eq("analysis_id", analysisId)
-    .eq("is_active", true)
-    .order("votes", { ascending: false });
+    .eq("is_active", true);
+  return data || [];
+}
+
+function priorityScore(impact?: string, confidence?: string) {
+  const im = impact === "high" ? 3 : impact === "medium" ? 2 : 1;
+  const cf = confidence === "high" ? 0.3 : confidence === "medium" ? 0.2 : 0.1;
+  return im + cf;
+}
+
+async function getPayload(analysisId: string) {
+  const { data: a } = await supabase.from("design_analyses").select("*").eq("id", analysisId).single();
+  const all = await getAllActive(analysisId);
+
+  const ranked = [...all].sort((x, y) => {
+    const sx = priorityScore(x.impact, x.confidence);
+    const sy = priorityScore(y.impact, y.confidence);
+    return sy - sx;
+  });
+  const top3 = ranked.slice(0, 3);
 
   return {
     analysis_id: analysisId,
     summary: a?.summary ?? "",
-    recommendations: (recs || []).map((r) => ({
+    recommendations: top3.map((r) => ({
+      id: r.rec_key,
+      category: r.category,
+      title: r.title,
+      impact: r.impact,
+      confidence: r.confidence,
+      why_it_matters: r.why_it_matters,
+      what_to_change: r.what_to_change,
+      acceptance_criteria: r.acceptance_criteria,
+      analytics: r.analytics,
+      anchors: r.anchors,
+      votes: r.votes,
+    })),
+    recommendations_all: ranked.map((r) => ({
       id: r.rec_key,
       category: r.category,
       title: r.title,
@@ -286,44 +260,16 @@ Deno.serve(async (req) => {
           .update({ votes: (row?.votes ?? 0) + 1 })
           .eq("analysis_id", analysis_id).eq("rec_key", rec_id);
         await supabase.from("design_interactions").insert({ analysis_id, rec_key: rec_id, action: "upvote", payload: null });
-        return ok(await getAnalysisPayload(analysis_id), 200);
+        return ok(await getPayload(analysis_id), 200);
       }
       if (action === "downvote" && rec_id) {
         await supabase.from("design_recommendations")
           .update({ is_active: false })
           .eq("analysis_id", analysis_id).eq("rec_key", rec_id);
-
-        const base = await getAnalysisPayload(analysis_id);
-        const replacePrompt = `${PROMPT_PREFIX}
-Replace ID "${rec_id}" with ONE new recommendation (no overlap).
-Return: {"recommendations":[{...ONE...}]}
-Existing: ${JSON.stringify(base.recommendations).slice(0, 4000)}
-Context: ${JSON.stringify(context ?? {}, null, 2)}
-`;
-        const text = await callGemini(replacePrompt, []);
-        const parsedReplace = parseModelJson(text);
-        const newRec = Array.isArray(parsedReplace?.recommendations) ? parsedReplace.recommendations[0] : null;
-        if (newRec) {
-          await supabase.from("design_recommendations").insert({
-            analysis_id,
-            rec_key: newRec.id || `REC-${crypto.randomUUID().slice(0, 8)}`,
-            category: newRec.category ?? null,
-            title: newRec.title ?? null,
-            impact: newRec.impact ?? null,
-            confidence: newRec.confidence ?? null,
-            why_it_matters: newRec.why_it_matters ?? null,
-            what_to_change: newRec.what_to_change ?? [],
-            acceptance_criteria: newRec.acceptance_criteria ?? [],
-            analytics: newRec.analytics ?? [],
-            anchors: newRec.anchors ?? [],
-            votes: 0,
-            is_active: true,
-          });
-        }
         await supabase.from("design_interactions").insert({ analysis_id, rec_key: rec_id, action: "downvote", payload: null });
-        return ok(await getAnalysisPayload(analysis_id), 200);
+        return ok(await getPayload(analysis_id), 200);
       }
-      return ok(await getAnalysisPayload(analysis_id), 200);
+      return ok(await getPayload(analysis_id), 200);
     }
 
     // Initial analysis
@@ -337,19 +283,13 @@ Context: ${JSON.stringify(context ?? {}, null, 2)}
     }
 
     const prompt = buildPrompt(context || {});
-    const text = await callGemini(prompt, mediaParts);
-
+    const text = await callClaude(prompt);
     const parsed = parseModelJson(text);
-    if (!parsed || !Array.isArray(parsed.recommendations)) {
-      console.error("Raw Gemini response:", text);
-      return ok({ 
-        error: "Model did not return valid recommendations JSON.", 
-        debug: text.slice(0, 1000) 
-      }, 500);
+    if (!parsed || !Array.isArray(parsed.recommendations_all) || parsed.recommendations_all.length !== 7) {
+      return ok({ error: "Model did not return valid recommendations_all[7]." }, 500);
     }
-
     const analysisId = await insertAnalysis(parsed, url, paths);
-    return ok(await getAnalysisPayload(analysisId), 200);
+    return ok(await getPayload(analysisId), 200);
   } catch (e) {
     console.error("analyze error", e);
     return ok({ error: String(e?.message || e) }, 500);
