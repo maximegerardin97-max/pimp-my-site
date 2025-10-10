@@ -155,9 +155,18 @@ function buildPrompt(ctx: any) {
 Context:
 ${ctxStr}
 
-Analyze the provided website screenshot(s) and context to give specific, actionable design recommendations.
+You are analyzing a REAL website screenshot. Look at the actual visual elements, layout, colors, typography, and user interface in the provided image(s).
 
-You are a design analyst. Return ONLY JSON with exactly:
+CRITICAL: Base your recommendations on what you ACTUALLY SEE in the screenshot, not generic advice.
+
+Analyze the specific visual elements you observe:
+- What does the hero section look like?
+- How is the navigation structured?
+- What colors and typography are used?
+- Are there any obvious usability issues?
+- What specific UI elements need improvement?
+
+Return ONLY JSON with exactly:
 {
   "summary": "max 25 words",
   "recommendations_all": [
@@ -174,17 +183,19 @@ For each recommendation:
 - acceptance_criteria: Measurable outcomes with specific metrics (e.g., ["CTA visible on scroll after 50% page height", "Size selection completed in under 2 clicks with visual confirmation"])
 
 Examples of GOOD vs BAD:
-BAD: "Improve user experience" 
-GOOD: "Add sticky add-to-cart button that follows user scroll on product pages"
+BAD: "Improve mobile responsiveness" (generic)
+GOOD: "Fix overlapping text in mobile header that covers the logo" (specific to what you see)
 
-BAD: "Better navigation"
-GOOD: "Implement breadcrumb navigation with product category hierarchy"
+BAD: "Better color scheme" (generic)  
+GOOD: "Increase contrast between white text and light blue background in hero section" (specific to screenshot)
 
-BAD: "More engaging content"  
-GOOD: "Add customer review carousel with verified purchase badges above fold"
+BAD: "Improve navigation" (generic)
+GOOD: "Make navigation menu items larger and add hover states as they're too small to click easily" (specific to screenshot)
 
 Hard constraints:
 - recommendations_all has EXACTLY 7 items.
+- Base EVERY recommendation on what you actually see in the provided screenshot(s).
+- Be SPECIFIC about visual elements, colors, layout issues you observe in the image.
 - Rank highest priority first. Priority = (impact high=3, medium=2, low=1) + (confidence high=0.3, medium=0.2, low=0.1). Sort DESC by score.
 - Be SPECIFIC and ACTIONABLE. Give concrete, implementable changes with exact UI elements, components, or features to modify.
 - JSON only. No code fences. No extra keys.
@@ -342,11 +353,14 @@ Deno.serve(async (req) => {
     const paths: string[] = Array.isArray(screenshotPaths)
       ? screenshotPaths
       : (screenshotPath ? [screenshotPath] : []);
+    console.log("Screenshot paths:", paths);
     const mediaParts: any[] = [];
     for (const p of paths) {
       const inline = await fetchStorageInline(p);
+      console.log("Processed screenshot:", p, "->", inline ? "SUCCESS" : "FAILED");
       if (inline) mediaParts.push(inline);
     }
+    console.log("Media parts count:", mediaParts.length);
 
     const prompt = buildPrompt(context || {});
     const text = await callClaude(prompt, mediaParts);
