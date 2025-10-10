@@ -80,7 +80,11 @@ async function fetchStorageInline(path: string) {
     const buf = new Uint8Array(await res.arrayBuffer());
     let s = "";
     for (let i = 0; i < buf.byteLength; i++) s += String.fromCharCode(buf[i]);
-    return { inline_data: { mime_type: mime, data: btoa(s) } };
+    // Anthropic expects { type: "image", source: { type: "base64", media_type, data } }
+    return {
+      type: "image",
+      source: { type: "base64", media_type: mime, data: btoa(s) }
+    };
   } catch {
     return null;
   }
@@ -89,9 +93,12 @@ async function fetchStorageInline(path: string) {
 async function callClaude(prompt: string, mediaParts: any[] = []) {
   if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
   
-  const content = [{ type: "text", text: prompt }];
-  if (mediaParts.length > 0) {
-    content.push(...mediaParts);
+  const content: any[] = [{ type: "text", text: prompt }];
+  // Only include valid Anthropic image parts
+  for (const p of mediaParts) {
+    if (p && p.type === "image" && p.source && p.source.type === "base64") {
+      content.push(p);
+    }
   }
   
   const res = await fetch("https://api.anthropic.com/v1/messages", {
