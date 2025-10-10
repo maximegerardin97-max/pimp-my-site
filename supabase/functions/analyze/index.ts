@@ -103,7 +103,7 @@ function parseModelJson(text: string) {
 
 async function fetchStorageInline(path: string) {
   try {
-    // Get public URL for storage object
+    // Get public URL for storage object - try both formats
     const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${SCREENSHOT_BUCKET}/${path}`;
     console.log("Generated public URL:", publicUrl);
     
@@ -113,7 +113,33 @@ async function fetchStorageInline(path: string) {
     
     if (!testResponse.ok) {
       console.log("Screenshot URL not accessible:", publicUrl);
-      return null;
+      console.log("Response headers:", Object.fromEntries(testResponse.headers.entries()));
+      
+      // Try alternative URL format
+      const altUrl = `${SUPABASE_URL}/storage/v1/object/public/${SCREENSHOT_BUCKET}/${path}`;
+      console.log("Trying alternative URL:", altUrl);
+      const altResponse = await fetch(altUrl, { method: "HEAD" });
+      console.log("Alternative URL test:", altResponse.status, altResponse.ok);
+      
+      if (!altResponse.ok) {
+        console.log("Both URL formats failed, trying base64 fallback");
+        
+        // Fallback to base64
+        try {
+          const imageResponse = await fetch(publicUrl);
+          if (imageResponse.ok) {
+            const arrayBuffer = await imageResponse.arrayBuffer();
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+            return { type: "image", source: { type: "base64", data: base64, media_type: "image/png" } };
+          }
+        } catch (base64Err) {
+          console.log("Base64 fallback failed:", base64Err);
+        }
+        
+        return null;
+      }
+      
+      return { type: "image", source: { type: "url", url: altUrl } };
     }
     
     // Prefer URL source to avoid base64 dimension/size limits; Anthropic will fetch and handle resizing
