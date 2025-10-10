@@ -105,6 +105,17 @@ async function fetchStorageInline(path: string) {
   try {
     // Get public URL for storage object
     const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${SCREENSHOT_BUCKET}/${path}`;
+    console.log("Generated public URL:", publicUrl);
+    
+    // Test if the URL is accessible
+    const testResponse = await fetch(publicUrl, { method: "HEAD" });
+    console.log("URL accessibility test:", testResponse.status, testResponse.ok);
+    
+    if (!testResponse.ok) {
+      console.log("Screenshot URL not accessible:", publicUrl);
+      return null;
+    }
+    
     // Prefer URL source to avoid base64 dimension/size limits; Anthropic will fetch and handle resizing
     return { type: "image", source: { type: "url", url: publicUrl } };
   } catch (e) {
@@ -123,6 +134,10 @@ async function callClaude(prompt: string, mediaParts: any[] = []) {
       content.push(p);
     }
   }
+  
+  console.log("Sending to Claude - Content parts:", content.length);
+  console.log("Media parts received:", mediaParts.length);
+  console.log("Content structure:", JSON.stringify(content, null, 2));
   
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -158,6 +173,8 @@ ${ctxStr}
 You are analyzing a REAL website screenshot. Look at the actual visual elements, layout, colors, typography, and user interface in the provided image(s).
 
 CRITICAL: Base your recommendations on what you ACTUALLY SEE in the screenshot, not generic advice.
+
+MANDATORY: You MUST reference specific visual elements from the screenshot in your recommendations. If you cannot see the screenshot clearly, say so in your summary.
 
 Analyze the specific visual elements you observe:
 - What does the hero section look like?
