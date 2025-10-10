@@ -127,16 +127,28 @@ You are a design analyst. Return ONLY JSON with exactly:
   ]
 }
 
+CRITICAL: Make recommendations DETAILED and ACTIONABLE. No generic advice.
+
+For each recommendation:
+- title: Specific, concrete action (e.g., "Add sticky CTA to product images" not "Improve buttons")
+- why_it_matters: Specific business impact with metrics (e.g., "Increases conversion by 15-25% based on ecommerce benchmarks")
+- what_to_change: Exact UI elements to modify (e.g., ["Add floating CTA button", "Implement size selector with visual feedback"])
+- acceptance_criteria: Measurable outcomes (e.g., ["CTA visible on scroll", "Size selection <2 clicks"])
+
+Examples of GOOD vs BAD:
+BAD: "Improve user experience" 
+GOOD: "Add sticky add-to-cart button that follows user scroll on product pages"
+
+BAD: "Better navigation"
+GOOD: "Implement breadcrumb navigation with product category hierarchy"
+
+BAD: "More engaging content"  
+GOOD: "Add customer review carousel with verified purchase badges above fold"
+
 Hard constraints:
 - recommendations_all has EXACTLY 7 items.
 - Rank highest priority first. Priority = (impact high=3, medium=2, low=1) + (confidence high=0.3, medium=0.2, low=0.1). Sort DESC by score.
-- Be SPECIFIC and ACTIONABLE. Instead of vague advice, give concrete, implementable changes:
-  * UI: specific components, layouts, colors, spacing, typography changes
-  * UX: specific user flows, interactions, navigation patterns, form improvements
-  * Product: specific features, content, messaging, functionality additions
-- what_to_change: exact UI elements, components, or features to modify
-- acceptance_criteria: measurable, testable outcomes
-- why_it_matters: specific business/UX impact with metrics
+- Be SPECIFIC and ACTIONABLE. Give concrete, implementable changes with exact UI elements, components, or features to modify.
 - JSON only. No code fences. No extra keys.
 `;
 }
