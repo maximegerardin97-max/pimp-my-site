@@ -130,6 +130,13 @@ You are a design analyst. Return ONLY JSON with exactly:
 Hard constraints:
 - recommendations_all has EXACTLY 7 items.
 - Rank highest priority first. Priority = (impact high=3, medium=2, low=1) + (confidence high=0.3, medium=0.2, low=0.1). Sort DESC by score.
+- Be SPECIFIC and ACTIONABLE. Instead of vague advice, give concrete, implementable changes:
+  * UI: specific components, layouts, colors, spacing, typography changes
+  * UX: specific user flows, interactions, navigation patterns, form improvements
+  * Product: specific features, content, messaging, functionality additions
+- what_to_change: exact UI elements, components, or features to modify
+- acceptance_criteria: measurable, testable outcomes
+- why_it_matters: specific business/UX impact with metrics
 - JSON only. No code fences. No extra keys.
 `;
 }
