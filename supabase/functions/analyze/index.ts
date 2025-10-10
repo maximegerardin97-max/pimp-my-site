@@ -1,10 +1,21 @@
-// Kill Node.js polyfills that cause Deno issues
+// Kill Node.js polyfills that cause Deno issues - MUST BE FIRST
 // deno-lint-ignore no-explicit-any
 const __g: any = globalThis as any;
-if (__g.process) { try { delete __g.process; } catch { __g.process = undefined; } }
+if (__g.process) { 
+  try { 
+    delete __g.process; 
+  } catch { 
+    __g.process = undefined; 
+  } 
+}
+// Also kill other Node.js globals that cause issues
+if (__g.setInterval) { try { delete __g.setInterval; } catch { __g.setInterval = undefined; } }
+if (__g.setTimeout) { try { delete __g.setTimeout; } catch { __g.setTimeout = undefined; } }
+if (__g.clearInterval) { try { delete __g.clearInterval; } catch { __g.clearInterval = undefined; } }
+if (__g.clearTimeout) { try { delete __g.clearTimeout; } catch { __g.clearTimeout = undefined; } }
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4?target=deno&no-check";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4?target=deno&no-check&no-dts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("SB_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SB_SERVICE_ROLE_KEY") || "";
@@ -28,7 +39,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     persistSession: false,
     detectSessionInUrl: false,
   },
-  global: { headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` } },
+  global: { 
+    headers: { 
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'apikey': SUPABASE_SERVICE_ROLE_KEY
+    } 
+  },
+  db: {
+    schema: 'public'
+  }
 });
 
 function extractJsonObject(text: string) {
