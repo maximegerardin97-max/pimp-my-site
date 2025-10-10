@@ -123,7 +123,7 @@ You are a design analyst. Return ONLY JSON with exactly:
 {
   "summary": "max 25 words",
   "recommendations_all": [
-    { "id":"REC-1","category":"ui|ux|product","title":"max 8 words","impact":"high|medium|low","confidence":"high|medium|low","why_it_matters":"max 12 words","what_to_change":["max 6 words","max 6 words"],"acceptance_criteria":["max 6 words","max 6 words"],"analytics":["max 3 words"],"anchors":[] }
+    { "id":"REC-1","category":"ui|ux|product","title":"max 8 words","impact":"high|medium|low","confidence":"high|medium|low","why_it_matters":"max 36 words","what_to_change":["max 18 words","max 18 words"],"acceptance_criteria":["max 18 words","max 18 words"],"analytics":["max 9 words"],"anchors":[] }
   ]
 }
 
@@ -131,9 +131,9 @@ CRITICAL: Make recommendations DETAILED and ACTIONABLE. No generic advice.
 
 For each recommendation:
 - title: Specific, concrete action (e.g., "Add sticky CTA to product images" not "Improve buttons")
-- why_it_matters: Specific business impact with metrics (e.g., "Increases conversion by 15-25% based on ecommerce benchmarks")
-- what_to_change: Exact UI elements to modify (e.g., ["Add floating CTA button", "Implement size selector with visual feedback"])
-- acceptance_criteria: Measurable outcomes (e.g., ["CTA visible on scroll", "Size selection <2 clicks"])
+- why_it_matters: Specific business impact with metrics and detailed explanation (e.g., "Increases conversion by 15-25% based on ecommerce benchmarks because users can purchase without scrolling back to find the button")
+- what_to_change: Exact UI elements to modify with implementation details (e.g., ["Add floating CTA button that appears after 50% scroll", "Implement size selector with visual feedback and hover states"])
+- acceptance_criteria: Measurable outcomes with specific metrics (e.g., ["CTA visible on scroll after 50% page height", "Size selection completed in under 2 clicks with visual confirmation"])
 
 Examples of GOOD vs BAD:
 BAD: "Improve user experience" 
