@@ -78,14 +78,24 @@ async function fetchStorageInline(path: string) {
     if (!res.ok) return null;
     const mime = res.headers.get("content-type") || "image/png";
     const buf = new Uint8Array(await res.arrayBuffer());
+    
+    // Check if image is too large (>5MB or likely >8000px)
+    if (buf.length > 5 * 1024 * 1024) {
+      console.log("Screenshot too large, skipping image analysis");
+      return null;
+    }
+    
     let s = "";
     for (let i = 0; i < buf.byteLength; i++) s += String.fromCharCode(buf[i]);
+    const base64 = btoa(s);
+    
     // Anthropic expects { type: "image", source: { type: "base64", media_type, data } }
     return {
       type: "image",
-      source: { type: "base64", media_type: mime, data: btoa(s) }
+      source: { type: "base64", media_type: "image/jpeg", data: base64 }
     };
-  } catch {
+  } catch (e) {
+    console.log("Failed to process screenshot:", e);
     return null;
   }
 }
