@@ -1,9 +1,10 @@
-// CORS: strict (OPTIONS 204), wildcard allow-origin on all JSON
-// JWT verification: OFF
-// Env required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY
-// Optional: PROMPT_PREFIX
+// Kill Node.js polyfills that cause Deno issues
+// deno-lint-ignore no-explicit-any
+const __g: any = globalThis as any;
+if (__g.process) { try { delete __g.process; } catch { __g.process = undefined; } }
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.0?target=deno";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4?target=deno&no-check";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("SB_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SB_SERVICE_ROLE_KEY") || "";
@@ -22,7 +23,11 @@ const ok = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: CORS_JSON });
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+    detectSessionInUrl: false,
+  },
   global: { headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` } },
 });
 
